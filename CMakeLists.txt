@@ -7,4 +7,7 @@ add_executable(covector_fluids_cpp main.cpp StGrid.cpp StGrid.h FlowCpp.cpp Flow
         StGridv2.cpp
         StGridv2.h
         FlowCppv2.cpp
-        FlowCppv2.h)
+        FlowCppv2.h
+        run.cpp
+        run.h
+)

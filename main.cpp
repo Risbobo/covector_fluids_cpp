@@ -2,31 +2,34 @@
 #include <fstream>
 #include <filesystem>
 #include <eigen3/Eigen/Dense>
-#include "StGrid.h"
 #include "StGridv2.h"
-#include "FlowCpp.h"
 #include "FlowCppv2.h"
-#include <chrono>
+#include "run.h"
 
 using namespace std;
 
 int main()
 {
     // ================= Grid Parameters ====================
-    const int COLS = 257; // Number of grid pts in the x direction
+    const int COLS = 257; // Number of grid pts in the x direction (for ex: 257)
     const int ROWS = 257; // Number of grid pts in the y direction
     const double LENGTH = 4.; // Length of computational domain in the x direction
     const double BREADTH = 4.; // Breadth of computational domain in the y direction
+
+    // ================= Simulation Modes ====================
+
+    std::string BASIC = "Basic";
+    std::string COVFLUIDS1 = "CovectorFluids1";
 
     // ================= Fluid Parameters ====================
     const double CFL = 6.; // For Covector Fluid
 
     // ================= Simulation Parameters ===============
-    const int sim_time = 150;
+    const int sim_time = 20;
     const int interval = 10;
 
     // ================= File setup ==========================
-    string NAME = "test1";
+    string NAME = "test";
     string PATH = "../data/" + NAME;
     //filesystem::path test = filesystem::current_path();
     //cout << test << endl;
@@ -35,8 +38,9 @@ int main()
     // ================= Boundary Conditions =================
     // Basic Boundary conditions
     StGridv2::Boundary noslip = {"D", 0};
+    StGridv2::Boundary nopressure = {"D", 0};
     StGridv2::Boundary zeroflux = {"N", 0};
-    StGridv2::Boundary pressure = {"D", 0};
+    StGridv2::Boundary pressure = {"D", 1};
     StGridv2::Boundary freeflow = {"N", 0};
 
     // Lid-cavity problem setup
@@ -44,81 +48,55 @@ int main()
     StGridv2::Boundary flow_lid = {"D", lidSpeed};
     StGridv2::Boundaries u_lid = {noslip, noslip, flow_lid, noslip};
     StGridv2::Boundaries v_lid = {noslip, noslip, noslip, noslip};
-    StGridv2::Boundaries p_lid = {zeroflux, zeroflux, pressure, zeroflux};
+    StGridv2::Boundaries p_lid = {zeroflux, zeroflux, zeroflux, zeroflux};
 
     // Tunnel
-    StGridv2::Boundary flow_tunnel = {"C", 0};
-    StGridv2::Boundaries u_tunnel = {flow_tunnel, freeflow, noslip, noslip};
-    StGridv2::Boundaries v_tunnel = {flow_tunnel, freeflow, noslip, noslip};
-    StGridv2::Boundaries p_tunnel = {flow_tunnel, freeflow, pressure, pressure};
+    double entry_speed = 20;
+    StGridv2::Boundary flow_tunnel = {"D", entry_speed};
+    StGridv2::Boundaries u_tunnel = {flow_tunnel, freeflow, freeflow, freeflow};
+    StGridv2::Boundaries v_tunnel = {freeflow, freeflow, freeflow, freeflow};
+    StGridv2::Boundaries p_tunnel = {zeroflux, nopressure, zeroflux, zeroflux};
+
+    // Poiseuille
+    double entry_pressure = 1;
+    StGridv2::Boundary flow_poiseuille = {"D", entry_pressure};
+    StGridv2::Boundaries u_poiseuille = {freeflow, freeflow, noslip, noslip};
+    StGridv2::Boundaries v_poiseuille = {freeflow, freeflow, noslip, noslip};
+    StGridv2::Boundaries p_poiseuille = {flow_poiseuille, nopressure, zeroflux, zeroflux};
 
     // No conditions
     StGridv2::Boundary null = {"null", 0};
     StGridv2::Boundaries nulls = {null, null, null, null};
 
-    // ================ General Simulation info =============
-    cout << "============== Begining Simulation ================" << endl;
-    cout << "===================================================" << endl;
-    cout << "=== Simulation time : " << sim_time << " ===" << endl;
-
     // Lid-driven
-    //StGridv2::StGridv2 grid = StGridv2::StGridv2(ROWS, COLS, LENGTH, BREADTH, u_lid, v_lid, p_lid, CFL);
+    StGridv2::StGridv2 grid_lid = StGridv2::StGridv2(11, 11, LENGTH, BREADTH, u_lid, v_lid, p_lid, CFL);
+    //grid_lid.GenerateOperators();
+    // Small perturbation so it can start
+    Eigen::ArrayXd ui = grid_lid.getU();
+    ui.reshaped(grid_lid.getRows() + 2, grid_lid.getCols() + 1)(Eigen::last - 1, Eigen::all) = Eigen::ArrayXd::Zero(grid_lid.getRows() + 2) + 0.1;
+    grid_lid.setU(ui);
 
     // Tunnel
-    StGridv2::StGridv2 grid = StGridv2::StGridv2(ROWS, COLS, LENGTH, BREADTH, u_tunnel, v_tunnel, p_tunnel, CFL);
-    Eigen::ArrayXd u1 = Eigen::ArrayXd::Ones(ROWS * (COLS + 1));
-    grid.setU(u1);
+    StGridv2::StGridv2 grid_tunnel = StGridv2::StGridv2(ROWS, COLS, LENGTH, BREADTH, u_tunnel, v_tunnel, p_tunnel, CFL);
+    grid_tunnel.AddCircleObstacle(LENGTH / 3.0, BREADTH / 2.0, BREADTH / 10.0);
+    //grid_tunnel.AddSquareObstacle(LENGTH / 3.0, BREADTH / 2.0, LENGTH / 16.0);
+    grid_tunnel.GenerateOperators();
 
-    double t = 0.;
-    int i = 0;
-    int barWidth = 60;
-    auto start = std::chrono::high_resolution_clock::now();
+    // Poiseuille
+    StGridv2::StGridv2 grid_poiseuille =StGridv2::StGridv2(11, 11, LENGTH, BREADTH, u_poiseuille, v_poiseuille, p_poiseuille, CFL);
+    //grid_poiseuille.GenerateOperators();
 
-    while (t < sim_time){
-        grid.SetTimeStep();
-        double time_step = grid.getDt();
-        FlowCppv2::BasicFlow(grid, time_step);
-        //FlowCppv2::CovectorFluids1(grid, time_step);
+    //run::run::Simulation(grid_lid, sim_time, interval, PATH, BASIC);
+    //FlowCppv2::BasicFlow(grid_lid);
 
-        if (i % interval == 0){
-            grid.WriteToFile(PATH + "/data_" + to_string(i) + ".vtk");
-        }
+    run::run::Simulation(grid_tunnel, sim_time, interval, PATH, BASIC);
+    //FlowCppv2::BasicFlow(grid_tunnel);
 
-        t += time_step;
-        ++i;
-        auto now = std::chrono::high_resolution_clock::now();
-        double elapsed_time = chrono::duration_cast<chrono::seconds>(now - start).count();
-        double time_left = elapsed_time * (sim_time / t - 1.0);
-        double progress = t / sim_time;
-        int pos = barWidth * progress;
-        cout << "[";
-        for (int n = 0; n < barWidth; ++n){
-            if (n < pos) cout << "=";
-            else if (n == pos) cout << ">";
-            else cout << " ";
-        }
-        cout << "] Estimated Time Left : " << int(time_left / 60) << " min" << endl;
-        cout.flush();
-    }
-    // Here goes the whole thing
+    //run::run::Simulation(grid_poiseuille, sim_time, interval, PATH, BASIC);
+    //FlowCppv2::BasicFlow(grid_poiseuille);
 
-    auto now = std::chrono::high_resolution_clock::now();
-    double elapsed_time = chrono::duration_cast<chrono::seconds>(now - start).count();
-    cout << "===================================================" << endl;
-    cout << "================ Simulation Ended =================" << endl;
-    cout << "Simulation ended in " << int(elapsed_time / 60) << " min" << endl;
 
-//    StGridv2::StGridv2 grid = StGridv2::StGridv2(ROWS, COLS, LENGTH, BREADTH, u_lid, v_lid, p_lid, CFL);
-//    StGridv2::StGridv2 grid = StGridv2::StGridv2(11, 11, 1, 1, u_lid, v_lid, p_lid, CFL);
-//    grid.SetTimeStep();
-//    FlowCppv2::BasicFlow(grid, grid.getDt());
-//    FlowCppv2::CovectorFluids1(grid, grid.getDt());
-//    cout << "divergence : \n" << grid.ComputeDivergence().reshaped(grid.getRows(), grid.getCols()) << endl;
-//    cout << "u : \n" << grid.getU().reshaped(grid.getRows(), grid.getCols() + 1) << endl << endl;
-//    Eigen::ArrayXd u1 = Eigen::ArrayXd::Ones(ROWS * (COLS + 1));
-//    grid.setU(u1);
-//    cout << "test of GetVelocity on u : \n" << FlowCppv2::GetVelocityU(grid, grid.getU(), grid.getXs(), grid.getYs()).reshaped(11, 11) << endl;
-
-//    grid.WriteToFile(PATH + "/test.vtk");
+    //run::run::test1(PATH);
+    //run::run::test2(PATH);
 }
 

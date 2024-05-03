@@ -5,11 +5,14 @@
 #ifndef COVECTOR_FLUIDS_CPP_STGRIDV2_H
 #define COVECTOR_FLUIDS_CPP_STGRIDV2_H
 #include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/SparseLU>
+#include <eigen3/Eigen/SparseCholesky>
+#include <eigen3/Eigen/IterativeLinearSolvers>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
-
+#include <unordered_set>
+#include <set>
+#include <cmath>
 
 namespace StGridv2{
     struct Boundary {
@@ -49,21 +52,24 @@ namespace StGridv2{
 
         // Differential operator Matrices
         Eigen::SparseMatrix<double> laplacian;
-        // Eigen::MatrixXd div_u;
         Eigen::SparseMatrix<double> div_u;
         Eigen::SparseMatrix<double> div_v;
         Eigen::SparseMatrix<double> div_cx;
         Eigen::SparseMatrix<double> div_cy;
+        Eigen::SparseVector<double> boundary_pressure;
 
         // Fluid Properties
         double CFL;
-        double left_velocity;
 
         // Boundaries
         Boundaries u_bound;
         Boundaries v_bound;
         Boundaries p_bound;
 
+        // Obstacles
+        std::unordered_set<int> obstacles_c;
+        std::unordered_set<int> obstacles_u;
+        std::unordered_set<int> obstacles_v;
 
     public:
         StGridv2(int rows, int cols, double length, double breadth, Boundaries u_bound, Boundaries v_bound, Boundaries p_bound, double CFL);
@@ -71,10 +77,18 @@ namespace StGridv2{
         void SetTimeStep();
 
         void ApplyVelocityBoundaries();
+        void ApplyVelocityObstacles();
         void ApplyPressureBoundaries();
 
+        void GenerateOperators();
+
+        void AddObstacle(std::unordered_set<std::tuple<int, int>> indices);
+        void AddCircleObstacle(double cx, double cy, double r);
+        void AddSquareObstacle(double cx, double cy, double l);
+
         // Pressure Projection
-        void SolvePressure();
+        void SolvePressureLin();
+        void SolvePressureIter();
         void SolveMomentumEquation();
 
         Eigen::VectorXd ComputeDivergence();
@@ -82,6 +96,10 @@ namespace StGridv2{
         int getRows() const;
 
         int getCols() const;
+
+        double getBreadth() const;
+
+        double getLength() const;
 
         double getDx() const;
 
@@ -113,8 +131,10 @@ namespace StGridv2{
         int indexP(int i, int j);
         int indexU(int i, int j);
         int indexV(int i, int j);
-        Eigen::ArrayXi indexUVec(Eigen::ArrayXi I, Eigen::ArrayXi J);
-        Eigen::ArrayXi indexVVec(Eigen::ArrayXi I, Eigen::ArrayXi J);
+        int indexCU(int i, int j) const;
+        int indexCV(int i, int j);
+        Eigen::ArrayXi indexFUVec(Eigen::ArrayXi I, Eigen::ArrayXi J);
+        Eigen::ArrayXi indexFVVec(Eigen::ArrayXi I, Eigen::ArrayXi J);
     };
 }
 
